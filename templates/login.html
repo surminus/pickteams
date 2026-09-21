@@ -1,0 +1,11 @@
+{{define "content"}}
+<div class="panel" style="max-width:380px">
+  <h2 style="margin-top:0">Sign in</h2>
+  {{if .Error}}<div class="flash error">{{.Error}}</div>{{end}}
+  <form method="post" action="/login">
+    <label for="password">Password</label>
+    <input id="password" type="password" name="password" autocomplete="current-password" autofocus required>
+    <p><button class="primary" type="submit">Sign in</button></p>
+  </form>
+</div>
+{{end}}

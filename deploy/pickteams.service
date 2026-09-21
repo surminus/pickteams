@@ -1,0 +1,48 @@
+[Unit]
+Description=Pick Teams, picks two even sides for a game of football
+Documentation=https://github.com/surminus/pickteams
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+ExecStart=/usr/local/bin/pickteams -addr 127.0.0.1:8080 -db /var/lib/pickteams/pickteams.db
+EnvironmentFile=/etc/pickteams/env
+Restart=on-failure
+RestartSec=2
+
+# A dynamic user means no account to create or keep track of. StateDirectory
+# gives it /var/lib/pickteams, owned correctly and kept across restarts, which
+# is where the database lives.
+DynamicUser=yes
+StateDirectory=pickteams
+StateDirectoryMode=0700
+UMask=0077
+
+# It needs its own state directory and a socket to listen on. Nothing else.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectProc=invisible
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

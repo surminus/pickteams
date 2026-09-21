@@ -1,0 +1,34 @@
+{{define "content"}}
+{{if .Lineup}}
+  <p class="lead">Sides for {{.Lineup.Session.PlayedOn}}.</p>
+  <div class="teams">
+    <div class="team a">
+      <h3>{{.Lineup.Session.NameA}}</h3>
+      <ul>
+        {{range .Lineup.TeamA}}
+          <li><span class="who">{{.Name}}</span>{{if .Position}}<span class="pos">{{.Position}}</span>{{end}}</li>
+        {{else}}
+          <li class="empty">Nobody yet</li>
+        {{end}}
+      </ul>
+    </div>
+    <div class="team b">
+      <h3>{{.Lineup.Session.NameB}}</h3>
+      <ul>
+        {{range .Lineup.TeamB}}
+          <li><span class="who">{{.Name}}</span>{{if .Position}}<span class="pos">{{.Position}}</span>{{end}}</li>
+        {{else}}
+          <li class="empty">Nobody yet</li>
+        {{end}}
+      </ul>
+    </div>
+  </div>
+  {{if not .Lineup.Session.Published}}
+    <p class="flash error" style="margin-top:16px">Not published yet. Only you can see this.</p>
+  {{end}}
+{{else}}
+  <div class="panel">
+    <p class="lead">No teams have been put up yet. Check back nearer kick-off.</p>
+  </div>
+{{end}}
+{{end}}

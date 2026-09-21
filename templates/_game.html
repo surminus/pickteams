@@ -1,0 +1,153 @@
+<div id="game">
+  {{if .Notice}}<div class="flash notice">{{.Notice}}</div>{{end}}
+  {{if .Error}}<div class="flash error">{{.Error}}</div>{{end}}
+
+  <div class="panel">
+    <div class="stack" style="justify-content:space-between">
+      <h3 style="margin:0">Sides</h3>
+      <form class="inline" hx-post="/admin/games/{{.Session.ID}}/pick" hx-target="#game" hx-swap="outerHTML"
+            method="post" action="/admin/games/{{.Session.ID}}/pick">
+        <button class="primary" type="submit">{{if .HasPicks}}Pick again{{else}}Pick the sides{{end}}</button>
+      </form>
+    </div>
+
+    {{if .HasPicks}}
+      <div class="teams" style="margin-top:14px">
+        <div class="team a">
+          <h3>{{.Session.NameA}} · avg {{.AvgA}}</h3>
+          <ul>
+            {{range .TeamA}}
+            <li>
+              <span class="who">{{.Name}}{{if .Position}} <span class="pos">{{.Position}}</span>{{end}}</span>
+              <span class="weight">{{.Weighting}}</span>
+              <form class="inline" hx-post="/admin/games/{{$.Session.ID}}/move" hx-target="#game" hx-swap="outerHTML"
+                    method="post" action="/admin/games/{{$.Session.ID}}/move">
+                <input type="hidden" name="player_id" value="{{.ID}}">
+                <button class="tiny" type="submit" title="Move to the other side">&rarr;</button>
+              </form>
+            </li>
+            {{end}}
+          </ul>
+        </div>
+        <div class="team b">
+          <h3>{{.Session.NameB}} · avg {{.AvgB}}</h3>
+          <ul>
+            {{range .TeamB}}
+            <li>
+              <form class="inline" hx-post="/admin/games/{{$.Session.ID}}/move" hx-target="#game" hx-swap="outerHTML"
+                    method="post" action="/admin/games/{{$.Session.ID}}/move">
+                <input type="hidden" name="player_id" value="{{.ID}}">
+                <button class="tiny" type="submit" title="Move to the other side">&larr;</button>
+              </form>
+              <span class="who">{{.Name}}{{if .Position}} <span class="pos">{{.Position}}</span>{{end}}</span>
+              <span class="weight">{{.Weighting}}</span>
+            </li>
+            {{end}}
+          </ul>
+        </div>
+      </div>
+
+      <form class="stack" style="margin-top:14px" hx-post="/admin/games/{{.Session.ID}}/publish"
+            hx-target="#game" hx-swap="outerHTML" hx-trigger="change"
+            method="post" action="/admin/games/{{.Session.ID}}/publish">
+        <label class="tick">
+          <input type="checkbox" name="published" value="1" {{if .Session.Published}}checked{{end}}>
+          <span>Show these teams on the public page</span>
+        </label>
+        <noscript><button type="submit">Save</button></noscript>
+      </form>
+      <small class="hint">The public page shows names and positions only. Weightings and averages never leave this screen.</small>
+    {{else}}
+      <p class="empty">Tick who is playing, then pick the sides.</p>
+    {{end}}
+
+      <details style="margin-top:12px">
+        <summary>Rename the sides</summary>
+        <form style="margin-top:10px" hx-post="/admin/games/{{.Session.ID}}/names" hx-target="#game" hx-swap="outerHTML"
+              method="post" action="/admin/games/{{.Session.ID}}/names">
+          <div class="grid2">
+            <div>
+              <label for="ta-name">First side</label>
+              <input id="ta-name" type="text" name="team_a_name" value="{{.Session.TeamAName}}"
+                     placeholder="{{defaultTeamA}}" maxlength="{{maxTeamName}}" autocomplete="off">
+            </div>
+            <div>
+              <label for="tb-name">Second side</label>
+              <input id="tb-name" type="text" name="team_b_name" value="{{.Session.TeamBName}}"
+                     placeholder="{{defaultTeamB}}" maxlength="{{maxTeamName}}" autocomplete="off">
+            </div>
+          </div>
+          <p><button type="submit">Save names</button></p>
+        </form>
+        <small class="hint">Leave a box empty to go back to {{defaultTeamA}} and {{defaultTeamB}}. Names are per game.</small>
+      </details>
+  </div>
+
+  <div class="panel">
+    <h3>Who is playing? <span style="color:var(--muted);font-weight:400">({{.Count}} ticked)</span></h3>
+    {{range .Squad}}
+      <div class="row">
+        <form class="inline" style="flex:1;display:flex" hx-post="/admin/games/{{$.Session.ID}}/attending"
+              hx-target="#game" hx-swap="outerHTML" hx-trigger="change"
+              method="post" action="/admin/games/{{$.Session.ID}}/attending">
+          <input type="hidden" name="player_id" value="{{.ID}}">
+          <label class="tick">
+            <input type="checkbox" name="attending" value="1" {{if index $.Attending .ID}}checked{{end}}>
+            <span class="name">
+              <b>{{.Name}}</b>
+              {{if .Position}}<span class="pos">{{.Position}}</span>{{end}}
+              {{if .Provisional}}<span class="badge">rough</span>{{end}}
+              {{if not .Active}}<span class="badge">not around</span>{{end}}
+            </span>
+          </label>
+          <noscript><button class="tiny" type="submit">Save</button></noscript>
+        </form>
+        <div class="controls">
+          <form class="inline" hx-post="/admin/games/{{$.Session.ID}}/weighting" hx-target="#game" hx-swap="outerHTML"
+                method="post" action="/admin/games/{{$.Session.ID}}/weighting">
+            <input type="hidden" name="player_id" value="{{.ID}}">
+            <input type="hidden" name="delta" value="-1">
+            <button class="tiny" type="submit" title="Down one">&minus;</button>
+          </form>
+          <span class="weight">{{.Weighting}}</span>
+          <form class="inline" hx-post="/admin/games/{{$.Session.ID}}/weighting" hx-target="#game" hx-swap="outerHTML"
+                method="post" action="/admin/games/{{$.Session.ID}}/weighting">
+            <input type="hidden" name="player_id" value="{{.ID}}">
+            <input type="hidden" name="delta" value="1">
+            <button class="tiny" type="submit" title="Up one">+</button>
+          </form>
+        </div>
+      </div>
+    {{else}}
+      <p class="empty">Nobody on the list yet. Add someone below.</p>
+    {{end}}
+  </div>
+
+  <div class="panel">
+    <h3>Someone just turned up</h3>
+    <form hx-post="/admin/games/{{.Session.ID}}/quick-add" hx-target="#game" hx-swap="outerHTML"
+          method="post" action="/admin/games/{{.Session.ID}}/quick-add">
+      <div class="grid2">
+        <div>
+          <label for="qa-name">Name</label>
+          <input id="qa-name" type="text" name="name" autocomplete="off" required>
+        </div>
+        <div>
+          <label for="qa-weight">Weighting</label>
+          <select id="qa-weight" name="weighting">
+            {{range weightings}}<option value="{{.}}" {{if eq . defaultWeighting}}selected{{end}}>{{.}}</option>{{end}}
+          </select>
+          <small class="hint">A guess is fine, it gets flagged as rough.</small>
+        </div>
+      </div>
+      <div style="margin-top:10px">
+        <label for="qa-pos">Where do they like to play?</label>
+        <select id="qa-pos" name="position">
+          <option value="">{{posLabel ""}}</option>
+          {{range positions}}<option value="{{.}}">{{posLabel .}}</option>{{end}}
+        </select>
+      </div>
+      <p><button class="primary" type="submit">Add and tick them in</button></p>
+    </form>
+  </div>
+</div>

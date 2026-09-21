@@ -1,0 +1,4 @@
+/pickteams
+*.db
+*.db-shm
+*.db-wal

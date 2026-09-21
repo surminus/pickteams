@@ -1,0 +1,102 @@
+{{define "content"}}
+{{if .Notice}}<div class="flash notice">{{.Notice}}</div>{{end}}
+{{if .Error}}<div class="flash error">{{.Error}}</div>{{end}}
+
+<div class="panel">
+  <h2 style="margin-top:0">Add a player</h2>
+  <form method="post" action="/admin/players">
+    <div class="grid2">
+      <div>
+        <label for="name">Name</label>
+        <input id="name" type="text" name="name" autocomplete="off" required>
+      </div>
+      <div>
+        <label for="weighting">Weighting</label>
+        <select id="weighting" name="weighting">
+          {{range weightings}}<option value="{{.}}" {{if eq . defaultWeighting}}selected{{end}}>{{.}}</option>{{end}}
+        </select>
+      </div>
+    </div>
+    <div style="margin-top:10px">
+      <label for="position">Where do they play?</label>
+      <select id="position" name="position">
+        <option value="">{{posLabel ""}}</option>
+        {{range positions}}<option value="{{.}}">{{posLabel .}}</option>{{end}}
+      </select>
+      <small class="hint">We share turns in goal, so pick the goalkeeper option only for someone who never plays out.</small>
+    </div>
+    <p><button class="primary" type="submit">Add</button></p>
+  </form>
+  <small class="hint">
+    The weighting is only used to even the two sides up. It is not a score and nobody else can see it.
+  </small>
+</div>
+
+<h2>Everyone</h2>
+{{range .Players}}
+<div class="panel">
+  <div class="stack" style="justify-content:space-between">
+    <div>
+      <b>{{.Name}}</b>
+      {{if .Position}}<span class="pos">{{.Position}}</span>{{end}}
+      {{if .Provisional}}<span class="badge">rough</span>{{end}}
+      {{if not .Active}}<span class="badge">not around</span>{{end}}
+    </div>
+    <span class="weight">{{.Weighting}}</span>
+  </div>
+
+  <details style="margin-top:8px">
+    <summary>Edit</summary>
+    <form method="post" action="/admin/players/{{.ID}}" style="margin-top:12px">
+      <div class="grid2">
+        <div>
+          <label for="name-{{.ID}}">Name</label>
+          <input id="name-{{.ID}}" type="text" name="name" value="{{.Name}}" required>
+        </div>
+        <div>
+          <label for="w-{{.ID}}">Weighting</label>
+          <select id="w-{{.ID}}" name="weighting">
+            {{$w := .Weighting}}
+            {{range weightings}}<option value="{{.}}" {{if eq . $w}}selected{{end}}>{{.}}</option>{{end}}
+          </select>
+        </div>
+      </div>
+
+      <div style="margin-top:10px">
+        {{$current := .Position}}
+        <label for="pos-{{.ID}}">Where do they play?</label>
+        <select id="pos-{{.ID}}" name="position">
+          <option value="" {{if eq $current ""}}selected{{end}}>{{posLabel ""}}</option>
+          {{range positions}}<option value="{{.}}" {{if eq . $current}}selected{{end}}>{{posLabel .}}</option>{{end}}
+        </select>
+      </div>
+
+      <p>
+        <label for="notes-{{.ID}}">Notes (only you see these)</label>
+        <textarea id="notes-{{.ID}}" name="notes" rows="2">{{.Notes}}</textarea>
+      </p>
+
+      <div class="stack">
+        <label class="tick" style="flex:none">
+          <input type="checkbox" name="active" value="1" {{if .Active}}checked{{end}}> <span>Still playing with us</span>
+        </label>
+        <label class="tick" style="flex:none">
+          <input type="checkbox" name="provisional" value="1" {{if .Provisional}}checked{{end}}> <span>Weighting is still a rough guess</span>
+        </label>
+      </div>
+
+      <p class="stack">
+        <button class="primary" type="submit">Save</button>
+      </p>
+    </form>
+
+    <form method="post" action="/admin/players/{{.ID}}/delete"
+          onsubmit="return confirm('Remove {{.Name}} completely? Past games lose them too.')">
+      <button class="link" type="submit">Remove {{.Name}}</button>
+    </form>
+  </details>
+</div>
+{{else}}
+<p class="empty">Nobody added yet.</p>
+{{end}}
+{{end}}

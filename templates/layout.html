@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{{if .Title}}{{.Title}} · {{end}}{{appName}}</title>
+<script src="/static/htmx.min.js" defer></script>
+<style>
+:root {
+  --bg: #f6f7f5;
+  --panel: #ffffff;
+  --ink: #1d2320;
+  --muted: #5f6b64;
+  --line: #d9ded9;
+  --accent: #1f7a4d;
+  --accent-ink: #ffffff;
+  --a-tint: #e8f2ec;
+  --b-tint: #fdf0e4;
+  --warn: #8a3d1a;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14181a;
+    --panel: #1c2225;
+    --ink: #e8eceb;
+    --muted: #9aa8a2;
+    --line: #2e3739;
+    --accent: #3fae77;
+    --accent-ink: #0d1412;
+    --a-tint: #1b2e26;
+    --b-tint: #322619;
+    --warn: #e0925f;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 0 16px 64px;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.wrap { max-width: 780px; margin: 0 auto; }
+header.top {
+  display: flex; flex-wrap: wrap; gap: 8px 16px;
+  align-items: baseline; justify-content: space-between;
+  padding: 20px 0 16px; border-bottom: 1px solid var(--line); margin-bottom: 20px;
+}
+header.top h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+header.top a { color: var(--muted); text-decoration: none; margin-left: 14px; font-size: 15px; }
+header.top a:hover { color: var(--ink); text-decoration: underline; }
+h2 { font-size: 17px; margin: 28px 0 10px; }
+h3 { font-size: 15px; margin: 0 0 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+p.lead { color: var(--muted); }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+.flash { padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; font-size: 15px; }
+.flash.notice { background: var(--a-tint); color: var(--ink); }
+.flash.error { background: var(--b-tint); color: var(--warn); font-weight: 600; }
+.teams { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 560px) { .teams { grid-template-columns: 1fr; } }
+.team { border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+.team.a { background: var(--a-tint); }
+.team.b { background: var(--b-tint); }
+.team ul { list-style: none; margin: 0; padding: 0; }
+.team li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.team li:last-child { border-bottom: 0; }
+.team li .who { flex: 1; }
+.pos { font-size: 11px; letter-spacing: 0.06em; color: var(--muted); text-transform: uppercase; }
+.row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.row:last-of-type { border-bottom: 0; }
+.row .name { flex: 1; min-width: 0; }
+.row .name b { font-weight: 600; }
+label.tick { display: flex; align-items: center; gap: 10px; cursor: pointer; flex: 1; }
+input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--accent); flex: none; }
+input[type=text], input[type=date], input[type=password], input[type=number], select, textarea {
+  font: inherit; color: var(--ink); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; width: 100%;
+}
+button {
+  font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--ink); padding: 9px 14px; min-height: 40px;
+}
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+button.tiny { min-height: 32px; padding: 2px 10px; font-size: 16px; line-height: 1; }
+button.link { background: none; border: 0; color: var(--muted); text-decoration: underline; padding: 4px; min-height: auto; }
+form.inline { display: inline; }
+.controls { display: flex; align-items: center; gap: 4px; flex: none; }
+.weight { min-width: 24px; text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; }
+.badge { font-size: 11px; padding: 2px 7px; border-radius: 99px; background: var(--b-tint); color: var(--warn); font-weight: 600; }
+.stack { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 560px) { .grid2 { grid-template-columns: 1fr; } }
+fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 0; }
+legend { font-size: 13px; color: var(--muted); padding: 0 4px; }
+fieldset.positions label { display: inline-flex; align-items: center; gap: 6px; margin-right: 14px; }
+small.hint { color: var(--muted); display: block; margin-top: 4px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 13px; color: var(--muted); font-weight: 600; }
+details summary { cursor: pointer; color: var(--muted); }
+.empty { color: var(--muted); font-style: italic; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>{{appName}}</h1>
+    <nav>
+      <a href="/">Teams</a>
+      {{if .IsAdmin}}
+        <a href="/admin/">Games</a>
+        <a href="/admin/players">Players</a>
+        <form class="inline" method="post" action="/logout"><button class="link" type="submit">Sign out</button></form>
+      {{end}}
+    </nav>
+  </header>
+  {{template "content" .}}
+</div>
+</body>
+</html>

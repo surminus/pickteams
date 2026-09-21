@@ -1,0 +1,5 @@
+{{define "content"}}
+<p class="lead"><a href="/admin/">All games</a></p>
+<h2 style="margin-top:0">{{.Session.PlayedOn}}</h2>
+{{template "_game.html" .}}
+{{end}}

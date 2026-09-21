@@ -1,0 +1,5 @@
+# Caddy sets X-Forwarded-Proto on its own, which is what makes the admin
+# session cookie go out with Secure set. Nothing else is needed.
+pickteams.example.com {
+	reverse_proxy 127.0.0.1:8080
+}

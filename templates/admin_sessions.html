@@ -1,0 +1,40 @@
+{{define "content"}}
+<div class="panel">
+  <h2 style="margin-top:0">New game</h2>
+  <form method="post" action="/admin/games" class="stack">
+    <input type="date" name="played_on" value="{{.Today}}" style="max-width:200px">
+    <button class="primary" type="submit">Start one</button>
+  </form>
+</div>
+
+{{if .Provisional}}
+<div class="panel">
+  <h2 style="margin-top:0">Worth a second look</h2>
+  <p class="lead">These were set in a hurry. Adjust them on the <a href="/admin/players">players page</a> when you have a minute.</p>
+  <p>{{range .Provisional}}<span class="badge" style="margin-right:6px">{{.Name}} · {{.Weighting}}</span>{{end}}</p>
+</div>
+{{end}}
+
+<h2>Games</h2>
+{{if .Sessions}}
+<table>
+  <tr><th>Date</th><th>Playing</th><th>Teams</th><th>Visible</th><th></th></tr>
+  {{range .Sessions}}
+  <tr>
+    <td><a href="/admin/games/{{.ID}}">{{.PlayedOn}}</a></td>
+    <td>{{.Attending}}</td>
+    <td>{{if .HasPicks}}picked{{else}}<span class="empty">not yet</span>{{end}}</td>
+    <td>{{if .Published}}yes{{else}}<span class="empty">no</span>{{end}}</td>
+    <td style="text-align:right">
+      <form class="inline" method="post" action="/admin/games/{{.ID}}/delete"
+            onsubmit="return confirm('Delete the game on {{.PlayedOn}}?')">
+        <button class="link" type="submit">Delete</button>
+      </form>
+    </td>
+  </tr>
+  {{end}}
+</table>
+{{else}}
+<p class="empty">No games yet.</p>
+{{end}}
+{{end}}
