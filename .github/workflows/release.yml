@@ -1,3 +1,7 @@
+# Actions are pinned to a commit SHA rather than a tag, because a tag can be
+# moved to point at different code. The comment after each one is the version
+# that SHA was, so an upgrade is still a readable diff.
+
 name: release
 
 # Pushing a tag like v1.2.3 is the whole release process. Nothing here runs on
@@ -14,12 +18,12 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # git describe needs the tags, and a shallow clone does not have them.
           fetch-depth: 0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
