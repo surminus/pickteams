@@ -55,14 +55,28 @@ type Player struct {
 	Notes    string
 }
 
-// PublicPlayer is what anyone is allowed to see: a name and where they play.
+// PublicPlayer is what anyone is allowed to see: a name, and GK for the
+// handful of people who only ever go in goal.
 type PublicPlayer struct {
 	Name     string
 	Position string
 }
 
+// PublicPosition is the position as anyone outside the admin pages sees it.
+// Everything but GK comes back empty. Where somebody plays is a judgement we
+// have made about them, the same as a weighting is, and the team sheet does
+// not need it. A declared keeper is the exception: that is not a judgement,
+// it is the whole reason they turn up, and people want to know who is in
+// goal before they get there.
+func PublicPosition(pos string) string {
+	if pos == "GK" {
+		return "GK"
+	}
+	return ""
+}
+
 func (p Player) Public() PublicPlayer {
-	return PublicPlayer{Name: p.Name, Position: p.Position}
+	return PublicPlayer{Name: p.Name, Position: PublicPosition(p.Position)}
 }
 
 // IsKeeper reports whether this is somebody who only ever goes in goal, as

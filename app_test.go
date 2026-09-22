@@ -203,6 +203,77 @@ func TestFullRun(t *testing.T) {
 			t.Errorf("the public page contains %q", leak)
 		}
 	}
+	// Nor should where we reckon anyone plays, keepers aside.
+	for _, leak := range []string{"DEF", "MID", "ATT"} {
+		if strings.Contains(body, leak) {
+			t.Errorf("the public page gives away the position %q", leak)
+		}
+	}
+	if !strings.Contains(body, "GK") {
+		t.Error("the public page should still say who is in goal")
+	}
+}
+
+// TestPublicPositionKeepsKeepersOnly checks the one filter the public team
+// sheet leans on.
+func TestPublicPositionKeepsKeepersOnly(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"GK", "GK"},
+		{"DEF", ""},
+		{"MID", ""},
+		{"ATT", ""},
+		{"", ""},
+	} {
+		if got := PublicPosition(tc.in); got != tc.want {
+			t.Errorf("PublicPosition(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestLineupHidesOutfieldPositions makes sure the filter happens in the store,
+// not only in the template.
+func TestLineupHidesOutfieldPositions(t *testing.T) {
+	app := newTestApp(t)
+
+	for _, p := range []struct{ name, pos string }{{"Ada", "GK"}, {"Bea", "DEF"}} {
+		form := url.Values{"name": {p.name}, "weighting": {"3"}, "position": {p.pos}}
+		if w := app.post(t, "/admin/players", form, true); w.Code != http.StatusSeeOther {
+			t.Fatalf("adding %s: got %d", p.name, w.Code)
+		}
+	}
+	if w := app.post(t, "/admin/games", url.Values{"played_on": {"2026-09-24"}}, true); w.Code != http.StatusSeeOther {
+		t.Fatalf("creating a game: got %d", w.Code)
+	}
+	all, err := app.store.Players()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range all {
+		form := url.Values{"player_id": {itoa(p.ID)}, "attending": {"1"}}
+		if w := app.post(t, "/admin/games/1/attending", form, true); w.Code != http.StatusSeeOther {
+			t.Fatalf("ticking %s in: got %d", p.Name, w.Code)
+		}
+	}
+	if w := app.post(t, "/admin/games/1/pick", nil, true); w.Code != http.StatusSeeOther {
+		t.Fatalf("picking sides: got %d", w.Code)
+	}
+
+	lineup, err := app.store.Lineup(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pp := range append(append([]PublicPlayer{}, lineup.TeamA...), lineup.TeamB...) {
+		switch pp.Name {
+		case "Ada":
+			if pp.Position != "GK" {
+				t.Errorf("Ada is a declared keeper, got position %q", pp.Position)
+			}
+		case "Bea":
+			if pp.Position != "" {
+				t.Errorf("Bea's position reached the lineup as %q", pp.Position)
+			}
+		}
+	}
 }
 
 func TestQuickAddMarksTheWeightingAsRough(t *testing.T) {

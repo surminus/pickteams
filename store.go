@@ -462,7 +462,8 @@ func (s *Store) MovePlayer(sessionID, playerID int64) error {
 	return err
 }
 
-// Lineup is the public view of a session: names and positions, nothing else.
+// Lineup is the public view of a session: names, plus GK against anyone who
+// only ever goes in goal. Nothing else.
 type Lineup struct {
 	Session Session
 	TeamA   []PublicPlayer
@@ -470,7 +471,8 @@ type Lineup struct {
 }
 
 // Lineup reads the picked teams without touching the weighting column, so a
-// weighting cannot reach a public page even by mistake.
+// weighting cannot reach a public page even by mistake. Positions go through
+// PublicPosition on the way out for the same reason.
 func (s *Store) Lineup(sessionID int64) (Lineup, error) {
 	sess, err := s.Session(sessionID)
 	if err != nil {
@@ -494,7 +496,7 @@ func (s *Store) Lineup(sessionID int64) (Lineup, error) {
 		if err := rows.Scan(&team, &name, &position); err != nil {
 			return Lineup{}, err
 		}
-		pp := PublicPlayer{Name: name, Position: position}
+		pp := PublicPlayer{Name: name, Position: PublicPosition(position)}
 		if team == "A" {
 			out.TeamA = append(out.TeamA, pp)
 		} else {
