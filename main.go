@@ -35,6 +35,10 @@ var staticFS embed.FS
 // pickteams.
 const AppName = "Pick Teams"
 
+// version is set at build time with -ldflags '-X main.version=...'. A build
+// straight out of `go build` says so rather than pretending to be a release.
+var version = "dev"
+
 const (
 	cookieName    = "pickteams_admin"
 	sessionMaxAge = 30 * 24 * time.Hour
@@ -60,8 +64,14 @@ func main() {
 	var (
 		addr   = flag.String("addr", "127.0.0.1:8080", "address to listen on")
 		dbPath = flag.String("db", "pickteams.db", "path to the SQLite database file")
+		showV  = flag.Bool("version", false, "print the version and exit")
 	)
 	flag.Parse()
+
+	if *showV {
+		fmt.Printf("pickteams %s\n", version)
+		return
+	}
 
 	password := os.Getenv("PICKTEAMS_ADMIN_PASSWORD")
 	if password == "" {

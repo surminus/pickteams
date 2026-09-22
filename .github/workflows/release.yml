@@ -1,0 +1,40 @@
+name: release
+
+# Pushing a tag like v1.2.3 is the whole release process. Nothing here runs on
+# a normal push, so an ordinary commit cannot publish anything by accident.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # git describe needs the tags, and a shallow clone does not have them.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run the checks
+        run: make check
+
+      - name: Build the binaries
+        run: make dist VERSION=${{ github.ref_name }}
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "${{ github.ref_name }}" \
+            --generate-notes \
+            dist/*.tar.gz dist/SHA256SUMS
