@@ -131,19 +131,21 @@ func TestFullRun(t *testing.T) {
 	app := newTestApp(t)
 
 	players := []struct {
-		name string
-		w    string
-		pos  string
+		name   string
+		w      string
+		keeper bool
 	}{
-		{"Ada", "4", "GK"}, {"Bea", "2", "DEF"}, {"Cleo", "3", "MID"}, {"Dara", "1", "ATT"},
-		{"Erin", "5", "GK"}, {"Fern", "2", "DEF"}, {"Gwen", "4", "MID"}, {"Hana", "3", "ATT"},
+		{"Ada", "4", true}, {"Bea", "2", false}, {"Cleo", "3", false}, {"Dara", "1", false},
+		{"Erin", "5", true}, {"Fern", "2", false}, {"Gwen", "4", false}, {"Hana", "3", false},
 	}
 	for _, p := range players {
 		form := url.Values{
 			"name":      {p.name},
 			"weighting": {p.w},
-			"position":  {p.pos},
 			"notes":     {"private note about " + p.name},
+		}
+		if p.keeper {
+			form.Set("keeper", "1")
 		}
 		if w := app.post(t, "/admin/players", form, true); w.Code != http.StatusSeeOther {
 			t.Fatalf("adding %s: got %d", p.name, w.Code)
@@ -177,6 +179,21 @@ func TestFullRun(t *testing.T) {
 		t.Fatalf("got %d picked, want %d", len(lineup.TeamA)+len(lineup.TeamB), len(players))
 	}
 
+	// The admin view of the picked sides shows what was evened up.
+	admin := app.get(t, "/admin/games/1", true)
+	if admin.Code != http.StatusOK {
+		t.Fatalf("admin game page after picking: got %d", admin.Code)
+	}
+	adminBody := admin.Body.String()
+	// 24 points between eight players, and a keeper each way still leaves an
+	// exactly even split.
+	if got := strings.Count(adminBody, "4 players · total 12"); got != 2 {
+		t.Errorf("expected both sides to show 4 players and a total of 12, found %d", got)
+	}
+	if !strings.Contains(adminBody, `<span class="pos">`+KeeperLabel+`</span>`) {
+		t.Error("the admin game page should mark the keepers")
+	}
+
 	// Still hidden until it is published.
 	if w := app.get(t, "/games/1", false); w.Code != http.StatusNotFound {
 		t.Fatalf("an unpublished game should be hidden, got %d", w.Code)
@@ -198,48 +215,32 @@ func TestFullRun(t *testing.T) {
 		}
 	}
 	// Nothing about how anyone is weighted should reach this page.
-	for _, leak := range []string{"private note", "avg", "Weighting", "weighting", "rough"} {
+	for _, leak := range []string{"private note", "avg", "total", "Weighting", "weighting", "rough"} {
 		if strings.Contains(body, leak) {
 			t.Errorf("the public page contains %q", leak)
 		}
 	}
-	// Nor should where we reckon anyone plays, keepers aside.
-	for _, leak := range []string{"DEF", "MID", "ATT"} {
-		if strings.Contains(body, leak) {
-			t.Errorf("the public page gives away the position %q", leak)
-		}
-	}
-	if !strings.Contains(body, "GK") {
-		t.Error("the public page should still say who is in goal")
+	if got := strings.Count(body, `<span class="pos">`+KeeperLabel+`</span>`); got != 2 {
+		t.Errorf("the public page marks %d people as in goal, want the 2 keepers", got)
 	}
 }
 
-// TestPublicPositionKeepsKeepersOnly checks the one filter the public team
-// sheet leans on.
-func TestPublicPositionKeepsKeepersOnly(t *testing.T) {
-	for _, tc := range []struct{ in, want string }{
-		{"GK", "GK"},
-		{"DEF", ""},
-		{"MID", ""},
-		{"ATT", ""},
-		{"", ""},
-	} {
-		if got := PublicPosition(tc.in); got != tc.want {
-			t.Errorf("PublicPosition(%q) = %q, want %q", tc.in, got, tc.want)
-		}
-	}
-}
-
-// TestLineupHidesOutfieldPositions makes sure the filter happens in the store,
-// not only in the template.
-func TestLineupHidesOutfieldPositions(t *testing.T) {
+// TestLineupMarksOnlyKeepers checks the lineup says who is in goal and nothing
+// else, including for a player saved back when there were outfield positions.
+func TestLineupMarksOnlyKeepers(t *testing.T) {
 	app := newTestApp(t)
 
-	for _, p := range []struct{ name, pos string }{{"Ada", "GK"}, {"Bea", "DEF"}} {
-		form := url.Values{"name": {p.name}, "weighting": {"3"}, "position": {p.pos}}
+	for _, p := range []struct{ name, keeper string }{{"Ada", "1"}, {"Bea", ""}, {"Cleo", ""}, {"Dara", ""}} {
+		form := url.Values{"name": {p.name}, "weighting": {"3"}}
+		if p.keeper != "" {
+			form.Set("keeper", p.keeper)
+		}
 		if w := app.post(t, "/admin/players", form, true); w.Code != http.StatusSeeOther {
 			t.Fatalf("adding %s: got %d", p.name, w.Code)
 		}
+	}
+	if _, err := app.store.db.Exec(`UPDATE players SET position = 'DEF' WHERE name = 'Bea'`); err != nil {
+		t.Fatal(err)
 	}
 	if w := app.post(t, "/admin/games", url.Values{"played_on": {"2026-09-24"}}, true); w.Code != http.StatusSeeOther {
 		t.Fatalf("creating a game: got %d", w.Code)
@@ -263,16 +264,12 @@ func TestLineupHidesOutfieldPositions(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, pp := range append(append([]PublicPlayer{}, lineup.TeamA...), lineup.TeamB...) {
-		switch pp.Name {
-		case "Ada":
-			if pp.Position != "GK" {
-				t.Errorf("Ada is a declared keeper, got position %q", pp.Position)
-			}
-		case "Bea":
-			if pp.Position != "" {
-				t.Errorf("Bea's position reached the lineup as %q", pp.Position)
-			}
+		if want := pp.Name == "Ada"; pp.Keeper != want {
+			t.Errorf("%s: keeper is %v in the lineup, want %v", pp.Name, pp.Keeper, want)
 		}
+	}
+	if len(lineup.TeamA)+len(lineup.TeamB) != 4 {
+		t.Errorf("got %d players in the lineup, want 4", len(lineup.TeamA)+len(lineup.TeamB))
 	}
 }
 
@@ -282,7 +279,7 @@ func TestQuickAddMarksTheWeightingAsRough(t *testing.T) {
 		t.Fatalf("creating a game: got %d", w.Code)
 	}
 
-	form := url.Values{"name": {"Nico"}, "weighting": {"4"}, "position": {"MID"}}
+	form := url.Values{"name": {"Nico"}, "weighting": {"4"}, "keeper": {"1"}}
 	if w := app.post(t, "/admin/games/1/quick-add", form, true); w.Code != http.StatusSeeOther {
 		t.Fatalf("quick add: got %d", w.Code)
 	}
@@ -294,8 +291,8 @@ func TestQuickAddMarksTheWeightingAsRough(t *testing.T) {
 	if len(provisional) != 1 || provisional[0].Name != "Nico" {
 		t.Fatalf("expected Nico flagged as rough, got %+v", provisional)
 	}
-	if got := provisional[0].Position; got != "MID" {
-		t.Errorf("position is %q, want MID", got)
+	if !provisional[0].Keeper {
+		t.Error("Nico was added as somebody who only goes in goal, and that was lost")
 	}
 
 	attending, err := app.store.AttendingIDs(1)
@@ -391,7 +388,7 @@ func TestAdminGamePageRenders(t *testing.T) {
 
 func TestPlayersPageRenders(t *testing.T) {
 	app := newTestApp(t)
-	app.post(t, "/admin/players", url.Values{"name": {"Ada"}, "weighting": {"4"}, "position": {"DEF"}}, true)
+	app.post(t, "/admin/players", url.Values{"name": {"Ada"}, "weighting": {"4"}, "keeper": {"1"}}, true)
 
 	w := app.get(t, "/admin/players", true)
 	if w.Code != http.StatusOK {

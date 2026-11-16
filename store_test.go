@@ -94,6 +94,11 @@ func TestMigrationCatchesUpAnOlderDatabase(t *testing.T) {
 	if len(players) != 1 || players[0].Name != "Ada" || players[0].Weighting != 4 {
 		t.Errorf("the migration disturbed the players: %+v", players)
 	}
+	// Ada was saved as a defender, back when players had outfield positions.
+	// That reads as nothing now, and certainly not as a keeper.
+	if len(players) == 1 && players[0].Keeper {
+		t.Error("a player with an old outfield position came back as a keeper")
+	}
 }
 
 func TestMigratingTwiceChangesNothing(t *testing.T) {

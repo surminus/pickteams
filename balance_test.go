@@ -3,13 +3,14 @@ package main
 import (
 	"fmt"
 	"math"
+	"math/bits"
 	"math/rand/v2"
 	"testing"
 )
 
 func testRand() *rand.Rand { return rand.New(rand.NewPCG(1, 2)) }
 
-func squad(weightings ...int) []Player {
+func squadOf(weightings ...int) []Player {
 	out := make([]Player, len(weightings))
 	for i, w := range weightings {
 		out[i] = Player{
@@ -17,31 +18,38 @@ func squad(weightings ...int) []Player {
 			Name:      fmt.Sprintf("Player %d", i+1),
 			Active:    true,
 			Weighting: w,
-			Position:  "MID",
 		}
 	}
 	return out
 }
 
-func average(players []Player) float64 {
-	if len(players) == 0 {
-		return 0
-	}
-	total := 0
+func total(players []Player) int {
+	sum := 0
 	for _, p := range players {
-		total += p.Weighting
+		sum += p.Weighting
 	}
-	return float64(total) / float64(len(players))
+	return sum
+}
+
+func gap(s Split) int { return abs(total(s.A) - total(s.B)) }
+
+func has(players []Player, id int64) bool {
+	for _, p := range players {
+		if p.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func TestBalanceNeedsEnoughPlayers(t *testing.T) {
-	if _, err := Balance(squad(3, 3, 3), testRand()); err == nil {
+	if _, err := Balance(squadOf(3, 3, 3), testRand()); err == nil {
 		t.Fatal("expected an error with three players")
 	}
 }
 
 func TestBalanceUsesEveryoneOnce(t *testing.T) {
-	players := squad(1, 2, 3, 4, 5, 1, 2, 3, 4, 5)
+	players := squadOf(1, 2, 3, 4, 5, 1, 2, 3, 4, 5)
 	split, err := Balance(players, testRand())
 	if err != nil {
 		t.Fatal(err)
@@ -62,39 +70,188 @@ func TestBalanceUsesEveryoneOnce(t *testing.T) {
 }
 
 func TestBalanceEvenSizes(t *testing.T) {
-	for _, n := range []int{4, 8, 11, 14, 21, 22} {
+	for _, n := range []int{4, 5, 8, 11, 14, 21, 22, 23, 24} {
 		weightings := make([]int, n)
 		for i := range weightings {
 			weightings[i] = i%MaxWeighting + 1
 		}
-		split, err := Balance(squad(weightings...), testRand())
+		split, err := Balance(squadOf(weightings...), testRand())
 		if err != nil {
 			t.Fatalf("n=%d: %v", n, err)
 		}
-		if diff := abs(len(split.A) - len(split.B)); diff > 1 {
+		if len(split.A)+len(split.B) != n {
+			t.Errorf("n=%d: %d players came back", n, len(split.A)+len(split.B))
+		}
+		if diff := abs(len(split.A) - len(split.B)); diff != n%2 {
 			t.Errorf("n=%d: sides of %d and %d", n, len(split.A), len(split.B))
 		}
 	}
 }
 
-func TestBalanceEvensOutWeightings(t *testing.T) {
+func TestBalanceEvensOutTotals(t *testing.T) {
 	// Two players at each weighting, so a perfectly even split exists.
-	players := squad(1, 1, 2, 2, 3, 3, 4, 4, 5, 5)
+	players := squadOf(1, 1, 2, 2, 3, 3, 4, 4, 5, 5)
 	for i := 0; i < 20; i++ {
-		split, err := Balance(players, testRand())
+		split, err := Balance(players, rand.New(rand.NewPCG(uint64(i), 3)))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if gap := math.Abs(average(split.A) - average(split.B)); gap > 0.3 {
-			t.Fatalf("average gap of %.2f is too wide: %v vs %v", gap, average(split.A), average(split.B))
+		if g := gap(split); g != 0 {
+			t.Fatalf("totals of %d and %d, an exactly even split was available", total(split.A), total(split.B))
+		}
+		if split.Cost != 0 {
+			t.Errorf("cost is %d for an exactly even split", split.Cost)
+		}
+	}
+}
+
+// TestBalanceMatchesBruteForce checks the search against the slow and obvious
+// way of doing it: try every possible side and keep the smallest gap.
+func TestBalanceMatchesBruteForce(t *testing.T) {
+	rnd := rand.New(rand.NewPCG(4, 4))
+	for n := 4; n <= 13; n++ {
+		for trial := 0; trial < 20; trial++ {
+			weightings := make([]int, n)
+			for i := range weightings {
+				weightings[i] = MinWeighting + rnd.IntN(MaxWeighting-MinWeighting+1)
+			}
+			players := squadOf(weightings...)
+
+			sum := total(players)
+			want := math.MaxInt
+			for mask := 0; mask < 1<<n; mask++ {
+				if bits.OnesCount(uint(mask)) != n/2 {
+					continue
+				}
+				side := 0
+				for i, w := range weightings {
+					if mask&(1<<i) != 0 {
+						side += w
+					}
+				}
+				want = min(want, abs(2*side-sum))
+			}
+
+			split, err := Balance(players, rnd)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if g := gap(split); g != want || split.Cost != want {
+				t.Fatalf("%v: gap of %d (cost %d), the best there is is %d", weightings, g, split.Cost, want)
+			}
+		}
+	}
+}
+
+// With an odd number of players the side with one fewer has to be given the
+// stronger players, so that the totals match. Matching the averages instead
+// would leave the bigger side a whole player up.
+func TestBalanceMakesUpForTheExtraPlayer(t *testing.T) {
+	// 27 points between nine players: 13 against 14 is on offer.
+	players := squadOf(5, 4, 4, 3, 3, 3, 2, 2, 1)
+	for i := 0; i < 50; i++ {
+		split, err := Balance(players, rand.New(rand.NewPCG(uint64(i), 5)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if g := gap(split); g != 1 {
+			t.Fatalf("run %d: %d players with %d against %d players with %d",
+				i, len(split.A), total(split.A), len(split.B), total(split.B))
+		}
+	}
+}
+
+// When everyone is the same there is no making up for it, and the smaller
+// side is simply a player down. The cost should say so rather than call it
+// even.
+func TestBalanceAdmitsWhenTheExtraPlayerCannotBeMadeUpFor(t *testing.T) {
+	split, err := Balance(squadOf(3, 3, 3, 3, 3, 3, 3, 3, 3), testRand())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if split.Cost != 3 {
+		t.Errorf("cost is %d, want 3: one side is a weighting-3 player up", split.Cost)
+	}
+}
+
+// Neither which side is the bigger one nor which side the first name on the
+// list lands on should be the same every time.
+func TestBalanceDoesNotFavourASide(t *testing.T) {
+	for _, players := range [][]Player{
+		squadOf(5, 4, 4, 3, 3, 3, 2, 2, 1),
+		squadOf(5, 4, 4, 3, 3, 3, 2, 2, 1, 3),
+	} {
+		n := len(players)
+		const runs = 400
+		firstOnA, firstOnBigger, aIsBigger := 0, 0, 0
+		for i := 0; i < runs; i++ {
+			split, err := Balance(players, rand.New(rand.NewPCG(uint64(i), 9)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			onA := has(split.A, 1)
+			if onA {
+				firstOnA++
+			}
+			if len(split.A) > len(split.B) {
+				aIsBigger++
+			}
+			if onA == (len(split.A) > len(split.B)) {
+				firstOnBigger++
+			}
+		}
+		if firstOnA < runs/4 || firstOnA > 3*runs/4 {
+			t.Errorf("n=%d: the first player was on side A in %d of %d runs", n, firstOnA, runs)
+		}
+		if n%2 == 1 {
+			if aIsBigger < runs/4 || aIsBigger > 3*runs/4 {
+				t.Errorf("n=%d: side A had the extra player in %d of %d runs", n, aIsBigger, runs)
+			}
+			if firstOnBigger == 0 || firstOnBigger == runs {
+				t.Errorf("n=%d: the first player was on the bigger side in %d of %d runs", n, firstOnBigger, runs)
+			}
+		}
+	}
+}
+
+// Every equally even split should be as likely as the next. With eighteen
+// identical players there are 24,310 of them, and each player should end up
+// alongside player 1 in 8 runs out of 17.
+func TestBalanceChoosesEvenlyBetweenEqualSplits(t *testing.T) {
+	weightings := make([]int, 18)
+	for i := range weightings {
+		weightings[i] = 3
+	}
+	players := squadOf(weightings...)
+
+	const runs = 2000
+	together := map[int64]int{}
+	for i := 0; i < runs; i++ {
+		split, err := Balance(players, rand.New(rand.NewPCG(uint64(i), 11)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		side := split.A
+		if !has(side, 1) {
+			side = split.B
+		}
+		for _, p := range side {
+			together[p.ID]++
+		}
+	}
+
+	want := float64(runs) * 8 / 17
+	for id := int64(2); id <= 18; id++ {
+		if got := float64(together[id]); math.Abs(got-want) > 0.12*want {
+			t.Errorf("player %d was with player 1 in %.0f of %d runs, want about %.0f", id, got, runs, want)
 		}
 	}
 }
 
 func TestBalanceSplitsDedicatedKeepers(t *testing.T) {
-	players := squad(3, 3, 3, 3, 3, 3, 3, 3)
-	players[0].Position = "GK"
-	players[1].Position = "GK"
+	players := squadOf(3, 3, 3, 3, 3, 3, 3, 3)
+	players[0].Keeper = true
+	players[1].Keeper = true
 
 	for i := 0; i < 25; i++ {
 		split, err := Balance(players, rand.New(rand.NewPCG(uint64(i), 99)))
@@ -108,10 +265,28 @@ func TestBalanceSplitsDedicatedKeepers(t *testing.T) {
 	}
 }
 
+// Splitting the keepers comes before evening the totals, however lopsided
+// that leaves things.
+func TestBalanceSplitsKeepersEvenWhenItCostsBalance(t *testing.T) {
+	players := squadOf(5, 5, 1, 1, 1, 1)
+	players[2].Keeper = true
+	players[3].Keeper = true
+	players[4].Keeper = true
+	players[5].Keeper = true
+
+	split, err := Balance(players, testRand())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if countKeepers(split.A) != 2 || countKeepers(split.B) != 2 {
+		t.Errorf("four keepers split %d and %d", countKeepers(split.A), countKeepers(split.B))
+	}
+}
+
 func TestBalanceSplitsThreeKeepersAsEvenlyAsItCan(t *testing.T) {
-	players := squad(3, 3, 3, 3, 3, 3, 3, 3)
+	players := squadOf(3, 3, 3, 3, 3, 3, 3, 3)
 	for i := 0; i < 3; i++ {
-		players[i].Position = "GK"
+		players[i].Keeper = true
 	}
 	split, err := Balance(players, testRand())
 	if err != nil {
@@ -122,40 +297,17 @@ func TestBalanceSplitsThreeKeepersAsEvenlyAsItCan(t *testing.T) {
 	}
 }
 
-func TestBalanceWithOneKeeperDoesNotCrash(t *testing.T) {
-	players := squad(3, 3, 3, 3, 3, 3)
-	players[0].Position = "GK"
-	if _, err := Balance(players, testRand()); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// Nobody dedicated to goal means we all take turns, so the keeper rule should
-// not push the split around at all.
-func TestBalanceIgnoresGoalWhenEveryoneTakesTurns(t *testing.T) {
-	players := squad(1, 1, 2, 2, 4, 4, 5, 5)
+// One dedicated keeper is nothing to spread, so it should not push the split
+// around at all.
+func TestBalanceWithOneKeeperStillEvensTheTotals(t *testing.T) {
+	players := squadOf(5, 1, 2, 2, 4, 4)
+	players[0].Keeper = true
 	split, err := Balance(players, testRand())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gap := math.Abs(average(split.A) - average(split.B)); gap > 0.01 {
-		t.Errorf("average gap of %.2f, an exactly even split was available", gap)
-	}
-}
-
-func TestBalanceSpreadsOutfieldPositions(t *testing.T) {
-	players := squad(3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3)
-	for i := range players {
-		players[i].Position = OutfieldPositions[i%len(OutfieldPositions)]
-	}
-	split, err := Balance(players, testRand())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, pos := range OutfieldPositions {
-		if d := abs(countPosition(split.A, pos) - countPosition(split.B, pos)); d > 1 {
-			t.Errorf("%s is off by %d between the sides", pos, d)
-		}
+	if g := gap(split); g != 0 {
+		t.Errorf("totals of %d and %d, an exactly even split was available", total(split.A), total(split.B))
 	}
 }
 
@@ -163,15 +315,19 @@ func TestBalanceVariesBetweenRuns(t *testing.T) {
 	// Lots of identical players means lots of equally good splits, and the
 	// same one should not come back every time. Identical output would let
 	// people work out the weightings by watching week to week.
-	players := squad(2, 2, 3, 3, 3, 3, 4, 4, 3, 3)
+	players := squadOf(2, 2, 3, 3, 3, 3, 4, 4, 3, 3)
 	seen := map[string]bool{}
 	for i := 0; i < 15; i++ {
 		split, err := Balance(players, rand.New(rand.NewPCG(uint64(i), 7)))
 		if err != nil {
 			t.Fatal(err)
 		}
+		side := split.A
+		if !has(side, 1) {
+			side = split.B
+		}
 		key := ""
-		for _, p := range split.A {
+		for _, p := range side {
 			key += fmt.Sprintf("%d,", p.ID)
 		}
 		seen[key] = true
@@ -182,23 +338,33 @@ func TestBalanceVariesBetweenRuns(t *testing.T) {
 }
 
 func TestBalanceHeuristicForBigSquads(t *testing.T) {
-	weightings := make([]int, 30)
-	for i := range weightings {
-		weightings[i] = i%MaxWeighting + 1
-	}
-	players := squad(weightings...)
-	players[0].Position = "GK"
-	players[1].Position = "GK"
+	for _, n := range []int{30, 31} {
+		weightings := make([]int, n)
+		for i := range weightings {
+			weightings[i] = i%MaxWeighting + 1
+		}
+		players := squadOf(weightings...)
+		players[0].Keeper = true
+		players[1].Keeper = true
 
-	split, err := Balance(players, testRand())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(split.A)+len(split.B) != 30 {
-		t.Fatalf("lost players: %d + %d", len(split.A), len(split.B))
-	}
-	if gap := math.Abs(average(split.A) - average(split.B)); gap > 0.5 {
-		t.Errorf("average gap of %.2f is too wide for 30 players", gap)
+		split, err := Balance(players, testRand())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(split.A)+len(split.B) != n {
+			t.Fatalf("n=%d: lost players: %d + %d", n, len(split.A), len(split.B))
+		}
+		if diff := abs(len(split.A) - len(split.B)); diff != n%2 {
+			t.Errorf("n=%d: sides of %d and %d", n, len(split.A), len(split.B))
+		}
+		if countKeepers(split.A) != 1 || countKeepers(split.B) != 1 {
+			t.Errorf("n=%d: keepers split %d and %d", n, countKeepers(split.A), countKeepers(split.B))
+		}
+		// The totals differ by an even number when the grand total is even
+		// and an odd one when it is odd, so 0 or 1 is as close as it gets.
+		if g := gap(split); g != total(players)%2 {
+			t.Errorf("n=%d: totals of %d and %d", n, total(split.A), total(split.B))
+		}
 	}
 }
 
@@ -207,7 +373,7 @@ func TestBalanceTooManyPlayers(t *testing.T) {
 	for i := range weightings {
 		weightings[i] = 3
 	}
-	if _, err := Balance(squad(weightings...), testRand()); err == nil {
+	if _, err := Balance(squadOf(weightings...), testRand()); err == nil {
 		t.Fatal("expected an error above 64 players")
 	}
 }
@@ -215,17 +381,7 @@ func TestBalanceTooManyPlayers(t *testing.T) {
 func countKeepers(players []Player) int {
 	n := 0
 	for _, p := range players {
-		if p.IsKeeper() {
-			n++
-		}
-	}
-	return n
-}
-
-func countPosition(players []Player, pos string) int {
-	n := 0
-	for _, p := range players {
-		if p.Position == pos {
+		if p.Keeper {
 			n++
 		}
 	}

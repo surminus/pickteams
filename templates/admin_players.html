@@ -18,12 +18,10 @@
       </div>
     </div>
     <div style="margin-top:10px">
-      <label for="position">Where do they play?</label>
-      <select id="position" name="position">
-        <option value="">{{posLabel ""}}</option>
-        {{range positions}}<option value="{{.}}">{{posLabel .}}</option>{{end}}
-      </select>
-      <small class="hint">We share turns in goal, so pick the goalkeeper option only for someone who never plays out.</small>
+      <label class="tick">
+        <input type="checkbox" name="keeper" value="1"> <span>Only ever goes in goal</span>
+      </label>
+      <small class="hint">We share turns in goal, so tick this only for someone who never plays out.</small>
     </div>
     <p><button class="primary" type="submit">Add</button></p>
   </form>
@@ -38,7 +36,7 @@
   <div class="stack" style="justify-content:space-between">
     <div>
       <b>{{.Name}}</b>
-      {{if .Position}}<span class="pos">{{.Position}}</span>{{end}}
+      {{if .Keeper}}<span class="pos">{{keeperLabel}}</span>{{end}}
       {{if .Provisional}}<span class="badge">rough</span>{{end}}
       {{if not .Active}}<span class="badge">not around</span>{{end}}
     </div>
@@ -62,15 +60,6 @@
         </div>
       </div>
 
-      <div style="margin-top:10px">
-        {{$current := .Position}}
-        <label for="pos-{{.ID}}">Where do they play?</label>
-        <select id="pos-{{.ID}}" name="position">
-          <option value="" {{if eq $current ""}}selected{{end}}>{{posLabel ""}}</option>
-          {{range positions}}<option value="{{.}}" {{if eq . $current}}selected{{end}}>{{posLabel .}}</option>{{end}}
-        </select>
-      </div>
-
       <p>
         <label for="notes-{{.ID}}">Notes (only you see these)</label>
         <textarea id="notes-{{.ID}}" name="notes" rows="2">{{.Notes}}</textarea>
@@ -82,6 +71,9 @@
         </label>
         <label class="tick" style="flex:none">
           <input type="checkbox" name="provisional" value="1" {{if .Provisional}}checked{{end}}> <span>Weighting is still a rough guess</span>
+        </label>
+        <label class="tick" style="flex:none">
+          <input type="checkbox" name="keeper" value="1" {{if .Keeper}}checked{{end}}> <span>Only ever goes in goal</span>
         </label>
       </div>
 

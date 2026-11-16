@@ -121,8 +121,7 @@ func parseTemplates() (map[string]*template.Template, error) {
 		"defaultTeamA": func() string { return DefaultTeamAName },
 		"defaultTeamB": func() string { return DefaultTeamBName },
 		"maxTeamName":  func() int { return maxTeamNameLength },
-		"positions":    func() []string { return AllPositions },
-		"posLabel":     PositionLabel,
+		"keeperLabel":  func() string { return KeeperLabel },
 		"weightings": func() []int {
 			out := make([]int, 0, MaxWeighting-MinWeighting+1)
 			for w := MinWeighting; w <= MaxWeighting; w++ {

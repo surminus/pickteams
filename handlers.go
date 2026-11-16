@@ -159,21 +159,20 @@ func (a *App) gameData(id int64) (map[string]any, error) {
 		"Count":     attendingCount,
 		"TeamA":     teamA,
 		"TeamB":     teamB,
-		"AvgA":      averageWeighting(teamA),
-		"AvgB":      averageWeighting(teamB),
+		"TotalA":    totalWeighting(teamA),
+		"TotalB":    totalWeighting(teamB),
 		"HasPicks":  len(teamA)+len(teamB) > 0,
 	}, nil
 }
 
-func averageWeighting(players []Player) string {
-	if len(players) == 0 {
-		return "-"
-	}
+// totalWeighting is the number the balancer evens up. It is a total and not
+// an average so that a side with an extra player shows the advantage it has.
+func totalWeighting(players []Player) int {
 	total := 0
 	for _, p := range players {
 		total += p.Weighting
 	}
-	return fmt.Sprintf("%.1f", float64(total)/float64(len(players)))
+	return total
 }
 
 func (a *App) handleAdminSession(w http.ResponseWriter, r *http.Request) {
@@ -263,7 +262,7 @@ func (a *App) handleQuickAdd(w http.ResponseWriter, r *http.Request) {
 		Active:      true,
 		Weighting:   weighting,
 		Provisional: true,
-		Position:    CleanPosition(r.PostFormValue("position")),
+		Keeper:      r.PostFormValue("keeper") != "",
 	}
 
 	playerID, err := a.store.CreatePlayer(player)
@@ -435,7 +434,7 @@ func (a *App) handleCreatePlayer(w http.ResponseWriter, r *http.Request) {
 		Active:      true,
 		Weighting:   parseWeighting(r.PostFormValue("weighting")),
 		Provisional: r.PostFormValue("provisional") != "",
-		Position:    CleanPosition(r.PostFormValue("position")),
+		Keeper:      r.PostFormValue("keeper") != "",
 		Notes:       strings.TrimSpace(r.PostFormValue("notes")),
 	})
 	if err != nil {
@@ -470,7 +469,7 @@ func (a *App) handleUpdatePlayer(w http.ResponseWriter, r *http.Request) {
 	existing.Weighting = parseWeighting(r.PostFormValue("weighting"))
 	existing.Active = r.PostFormValue("active") != ""
 	existing.Provisional = r.PostFormValue("provisional") != ""
-	existing.Position = CleanPosition(r.PostFormValue("position"))
+	existing.Keeper = r.PostFormValue("keeper") != ""
 	existing.Notes = strings.TrimSpace(r.PostFormValue("notes"))
 
 	if existing.Name == "" {

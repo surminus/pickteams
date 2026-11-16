@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -145,12 +144,15 @@ func (s *Store) CookieKey() ([]byte, error) {
 
 // --- players (admin only) ---
 
-// CleanPosition keeps a position only if we recognise it. Anything else, an
-// empty string included, means the player will go anywhere.
-func CleanPosition(pos string) string {
-	pos = strings.ToUpper(strings.TrimSpace(pos))
-	if slices.Contains(AllPositions, pos) {
-		return pos
+// The position column goes back to when players had a position on the pitch.
+// The only one that still means anything is GK, for somebody who only ever
+// goes in goal. Rows from before may still hold DEF, MID or ATT, and those are
+// read as nothing at all.
+const keeperPosition = "GK"
+
+func positionFor(keeper bool) string {
+	if keeper {
+		return keeperPosition
 	}
 	return ""
 }
@@ -158,11 +160,13 @@ func CleanPosition(pos string) string {
 func scanPlayer(sc interface{ Scan(...any) error }) (Player, error) {
 	var p Player
 	var active, provisional int
-	if err := sc.Scan(&p.ID, &p.Name, &active, &p.Weighting, &provisional, &p.Position, &p.Notes); err != nil {
+	var position string
+	if err := sc.Scan(&p.ID, &p.Name, &active, &p.Weighting, &provisional, &position, &p.Notes); err != nil {
 		return Player{}, err
 	}
 	p.Active = active == 1
 	p.Provisional = provisional == 1
+	p.Keeper = position == keeperPosition
 	return p, nil
 }
 
@@ -195,7 +199,7 @@ func (s *Store) CreatePlayer(p Player) (int64, error) {
 	res, err := s.db.Exec(
 		`INSERT INTO players (name, active, weighting, provisional, position, notes) VALUES (?, ?, ?, ?, ?, ?)`,
 		strings.TrimSpace(p.Name), boolToInt(p.Active), p.Weighting, boolToInt(p.Provisional),
-		CleanPosition(p.Position), p.Notes,
+		positionFor(p.Keeper), p.Notes,
 	)
 	if err != nil {
 		return 0, err
@@ -207,7 +211,7 @@ func (s *Store) UpdatePlayer(p Player) error {
 	_, err := s.db.Exec(
 		`UPDATE players SET name = ?, active = ?, weighting = ?, provisional = ?, position = ?, notes = ? WHERE id = ?`,
 		strings.TrimSpace(p.Name), boolToInt(p.Active), p.Weighting, boolToInt(p.Provisional),
-		CleanPosition(p.Position), p.Notes, p.ID,
+		positionFor(p.Keeper), p.Notes, p.ID,
 	)
 	return err
 }
@@ -471,8 +475,7 @@ type Lineup struct {
 }
 
 // Lineup reads the picked teams without touching the weighting column, so a
-// weighting cannot reach a public page even by mistake. Positions go through
-// PublicPosition on the way out for the same reason.
+// weighting cannot reach a public page even by mistake.
 func (s *Store) Lineup(sessionID int64) (Lineup, error) {
 	sess, err := s.Session(sessionID)
 	if err != nil {
@@ -496,7 +499,7 @@ func (s *Store) Lineup(sessionID int64) (Lineup, error) {
 		if err := rows.Scan(&team, &name, &position); err != nil {
 			return Lineup{}, err
 		}
-		pp := PublicPlayer{Name: name, Position: PublicPosition(position)}
+		pp := PublicPlayer{Name: name, Keeper: position == keeperPosition}
 		if team == "A" {
 			out.TeamA = append(out.TeamA, pp)
 		} else {

@@ -14,11 +14,11 @@
     {{if .HasPicks}}
       <div class="teams" style="margin-top:14px">
         <div class="team a">
-          <h3>{{.Session.NameA}} · avg {{.AvgA}}</h3>
+          <h3>{{.Session.NameA}} · {{len .TeamA}} players · total {{.TotalA}}</h3>
           <ul>
             {{range .TeamA}}
             <li>
-              <span class="who">{{.Name}}{{if .Position}} <span class="pos">{{.Position}}</span>{{end}}</span>
+              <span class="who">{{.Name}}{{if .Keeper}} <span class="pos">{{keeperLabel}}</span>{{end}}</span>
               <span class="weight">{{.Weighting}}</span>
               <form class="inline" hx-post="/admin/games/{{$.Session.ID}}/move" hx-target="#game" hx-swap="outerHTML"
                     method="post" action="/admin/games/{{$.Session.ID}}/move">
@@ -30,7 +30,7 @@
           </ul>
         </div>
         <div class="team b">
-          <h3>{{.Session.NameB}} · avg {{.AvgB}}</h3>
+          <h3>{{.Session.NameB}} · {{len .TeamB}} players · total {{.TotalB}}</h3>
           <ul>
             {{range .TeamB}}
             <li>
@@ -39,7 +39,7 @@
                 <input type="hidden" name="player_id" value="{{.ID}}">
                 <button class="tiny" type="submit" title="Move to the other side">&larr;</button>
               </form>
-              <span class="who">{{.Name}}{{if .Position}} <span class="pos">{{.Position}}</span>{{end}}</span>
+              <span class="who">{{.Name}}{{if .Keeper}} <span class="pos">{{keeperLabel}}</span>{{end}}</span>
               <span class="weight">{{.Weighting}}</span>
             </li>
             {{end}}
@@ -56,7 +56,7 @@
         </label>
         <noscript><button type="submit">Save</button></noscript>
       </form>
-      <small class="hint">The public page shows names, and GK next to anyone who only ever goes in goal. Positions, weightings and averages never leave this screen.</small>
+      <small class="hint">The sides are evened up on total weighting, so a side with one player fewer gets stronger players to make up for it. The public page shows names, and {{keeperLabel}} next to anyone who only ever goes in goal. Weightings and totals never leave this screen.</small>
     {{else}}
       <p class="empty">Tick who is playing, then pick the sides.</p>
     {{end}}
@@ -95,7 +95,7 @@
             <input type="checkbox" name="attending" value="1" {{if index $.Attending .ID}}checked{{end}}>
             <span class="name">
               <b>{{.Name}}</b>
-              {{if .Position}}<span class="pos">{{.Position}}</span>{{end}}
+              {{if .Keeper}}<span class="pos">{{keeperLabel}}</span>{{end}}
               {{if .Provisional}}<span class="badge">rough</span>{{end}}
               {{if not .Active}}<span class="badge">not around</span>{{end}}
             </span>
@@ -141,11 +141,9 @@
         </div>
       </div>
       <div style="margin-top:10px">
-        <label for="qa-pos">Where do they like to play?</label>
-        <select id="qa-pos" name="position">
-          <option value="">{{posLabel ""}}</option>
-          {{range positions}}<option value="{{.}}">{{posLabel .}}</option>{{end}}
-        </select>
+        <label class="tick">
+          <input type="checkbox" name="keeper" value="1"> <span>Only ever goes in goal</span>
+        </label>
       </div>
       <p><button class="primary" type="submit">Add and tick them in</button></p>
     </form>

@@ -3,37 +3,13 @@ package main
 import (
 	"errors"
 	"math"
+	"math/bits"
 	"math/rand/v2"
 )
 
-// AllPositions are the positions a player can be given. A player has one of
-// them, or none at all, which means put them anywhere.
-//
-// GK is different from the rest. We share turns in goal, so most people are
-// outfield players and GK is reserved for someone who only ever goes in goal.
-// The balancer treats that as a thing to spread out rather than a shape to
-// even up.
-var AllPositions = []string{"GK", "DEF", "MID", "ATT"}
-
-// OutfieldPositions are the ones whose spread across the two sides is worth
-// evening out.
-var OutfieldPositions = []string{"DEF", "MID", "ATT"}
-
-// PositionLabel is how a position reads on screen.
-func PositionLabel(pos string) string {
-	switch pos {
-	case "GK":
-		return "In goal only"
-	case "DEF":
-		return "Defence"
-	case "MID":
-		return "Midfield"
-	case "ATT":
-		return "Attack"
-	default:
-		return "Anywhere"
-	}
-}
+// KeeperLabel is what goes next to the name of somebody who only ever goes in
+// goal.
+const KeeperLabel = "GK"
 
 // Player is the full record, including the weighting. Anything that is served
 // to a non-admin request must use PublicPlayer instead, so a weighting cannot
@@ -47,44 +23,25 @@ type Player struct {
 	// someone turned up and got added on the spot. It changes nothing about
 	// the split, it is just a reminder to go back and look properly.
 	Provisional bool
-	// Position is one of AllPositions, or empty for someone who will play
-	// anywhere. Somebody good enough to be weighted highly in one position is
-	// usually fine in the others, so this is about the shape of the side
-	// rather than about ability.
-	Position string
-	Notes    string
+	// Keeper marks somebody who only ever goes in goal. We share turns in
+	// goal, so this is for the handful of people who never play out. The
+	// balancer spreads them across the two sides.
+	Keeper bool
+	Notes  string
 }
 
-// PublicPlayer is what anyone is allowed to see: a name, and GK for the
-// handful of people who only ever go in goal.
+// PublicPlayer is what anyone is allowed to see: a name, and whether they are
+// one of the handful of people who only ever go in goal. That is not a
+// judgement about them, it is the whole reason they turn up, and people want
+// to know who is in goal before they get there.
 type PublicPlayer struct {
-	Name     string
-	Position string
-}
-
-// PublicPosition is the position as anyone outside the admin pages sees it.
-// Everything but GK comes back empty. Where somebody plays is a judgement we
-// have made about them, the same as a weighting is, and the team sheet does
-// not need it. A declared keeper is the exception: that is not a judgement,
-// it is the whole reason they turn up, and people want to know who is in
-// goal before they get there.
-func PublicPosition(pos string) string {
-	if pos == "GK" {
-		return "GK"
-	}
-	return ""
+	Name   string
+	Keeper bool
 }
 
 func (p Player) Public() PublicPlayer {
-	return PublicPlayer{Name: p.Name, Position: PublicPosition(p.Position)}
+	return PublicPlayer{Name: p.Name, Keeper: p.Keeper}
 }
-
-// IsKeeper reports whether this is somebody who only ever goes in goal, as
-// opposed to the rest of us taking a turn.
-func (p Player) IsKeeper() bool { return p.Position == "GK" }
-
-// PositionLabel is the on-screen wording for this player's position.
-func (p Player) PositionLabel() string { return PositionLabel(p.Position) }
 
 // The weighting scale. It is deliberately short: picking one of five is a
 // quicker judgement to make than picking one of ten, and more people sharing
@@ -106,14 +63,14 @@ func ClampWeighting(w int) int {
 	return w
 }
 
-// Weights for the cost function. Everything is expressed in hundredths of a
-// weighting point so the whole thing stays integer.
 const (
-	positionPenalty = 30   // 0.3 of a weighting point per position out of step
-	keeperPenalty   = 5000 // both dedicated keepers on one side spoils the game
-	costSlack       = 15   // splits within 0.15 of a point of the best are all fair game
-	maxCandidates   = 4096
-	maxExhaustive   = 24
+	// keeperPenalty is what it costs, per keeper out of step, to have the
+	// dedicated keepers bunched on one side. It is bigger than any gap in
+	// total weighting can be (64 players at MaxWeighting), so spreading the
+	// keepers always comes first.
+	keeperPenalty = 1000
+	maxPlayers    = 64
+	maxExhaustive = 24
 )
 
 // Split is one way of dividing the players into two sides.
@@ -123,91 +80,148 @@ type Split struct {
 	Cost int
 }
 
-// Balance divides players into two sides of as equal a size as possible,
-// evening out the total weighting and the spread of positions.
+// Balance divides players into two sides of as equal a size as possible, with
+// the total weighting of each side as close as it can get.
 //
-// It does not always return the single lowest-cost split. It picks at random
-// from all the splits that are within costSlack of the best one. That keeps
-// the sides from being identical week after week, and it means nobody can work
-// out anyone's weighting by watching which splits keep coming up.
+// It is the totals that are compared, not the averages. With an odd number of
+// players one side has an extra body, and that body is an advantage. Matching
+// the totals means the smaller side gets the stronger players to make up for
+// it, where matching the averages would hand the bigger side a free player.
+//
+// Usually many splits are equally even. Balance picks one of them at random,
+// each as likely as the next. That keeps the sides from being identical week
+// after week, and it means nobody can work out anyone's weighting by watching
+// which splits keep coming up. Which of the two sides gets the extra player
+// is random as well.
 func Balance(players []Player, rnd *rand.Rand) (Split, error) {
 	n := len(players)
 	if n < 4 {
 		return Split{}, errors.New("need at least 4 players to make two sides")
 	}
-	if n > 64 {
+	if n > maxPlayers {
 		return Split{}, errors.New("more than 64 players is beyond what this handles")
 	}
 
-	var cands []candidate
+	sq := newSquad(players)
+
+	var mask uint64
+	var cost int
 	if n <= maxExhaustive {
-		cands = searchExhaustive(players, rnd)
+		mask, cost = searchExhaustive(sq, rnd)
 	} else {
-		cands = searchHeuristic(players, rnd)
-	}
-	if len(cands) == 0 {
-		return Split{}, errors.New("no valid split found")
+		mask, cost = searchHeuristic(sq, rnd)
 	}
 
-	pick := cands[rnd.IntN(len(cands))]
-	return buildSplit(players, pick.mask, pick.cost), nil
+	// The searches only decide who plays with whom. Which group is called A
+	// is a coin toss, otherwise the first name on the list would always be on
+	// the same side and the extra player would always go to the other one.
+	if rnd.IntN(2) == 0 {
+		mask = ^mask & sq.all
+	}
+	return buildSplit(players, mask, cost), nil
 }
 
-type candidate struct {
+// squad is the players boiled down to what the search needs, so scoring a
+// split is a few additions rather than a walk over the full records.
+type squad struct {
+	n           int
+	weights     []int
+	total       int
+	keepers     uint64 // bit i set if player i only goes in goal
+	keeperCount int
+	all         uint64 // a bit set for every player
+}
+
+func newSquad(players []Player) squad {
+	sq := squad{n: len(players), weights: make([]int, len(players))}
+	for i, p := range players {
+		sq.weights[i] = p.Weighting
+		sq.total += p.Weighting
+		sq.all |= 1 << uint(i)
+		if p.Keeper {
+			sq.keepers |= 1 << uint(i)
+			sq.keeperCount++
+		}
+	}
+	return sq
+}
+
+// cost scores one split. Lower is more even, and nought is two sides with the
+// same total. Bits set in mask are one side, everyone else is the other.
+func (sq squad) cost(mask uint64) int {
+	sum := 0
+	for m := mask; m != 0; m &= m - 1 {
+		sum += sq.weights[bits.TrailingZeros64(m)]
+	}
+	cost := abs(2*sum - sq.total) // this side's total less the other side's
+
+	// Spread the people who only play in goal. With one or none of them there
+	// is nothing to spread, because the rest of us take turns.
+	if sq.keeperCount >= 2 {
+		mine := bits.OnesCount64(mask & sq.keepers)
+		cost += abs(2*mine-sq.keeperCount) * keeperPenalty
+	}
+	return cost
+}
+
+// chooser keeps one split out of all the equally good ones it is shown, each
+// with the same chance, without having to remember them all.
+type chooser struct {
+	rnd  *rand.Rand
+	best int
+	seen int
 	mask uint64
-	cost int
 }
 
-// searchExhaustive walks every possible even split. Player 0 is pinned to side
-// A, which halves the work by ignoring the mirror image of each split. For 22
-// players that is 352,716 combinations, which takes a few milliseconds.
-func searchExhaustive(players []Player, rnd *rand.Rand) []candidate {
-	n := len(players)
-	sizeA := n / 2
+func newChooser(rnd *rand.Rand) chooser {
+	return chooser{rnd: rnd, best: math.MaxInt}
+}
 
-	best := math.MaxInt
-	var cands []candidate
-
-	add := func(mask uint64, cost int) {
-		if cost < best {
-			best = cost
-			kept := cands[:0]
-			for _, c := range cands {
-				if c.cost <= best+costSlack {
-					kept = append(kept, c)
-				}
-			}
-			cands = kept
-		}
-		if cost > best+costSlack {
-			return
-		}
-		if len(cands) < maxCandidates {
-			cands = append(cands, candidate{mask, cost})
-		} else if rnd.IntN(2) == 0 {
-			cands[rnd.IntN(len(cands))] = candidate{mask, cost}
+func (c *chooser) offer(mask uint64, cost int) {
+	switch {
+	case cost < c.best:
+		c.best, c.seen, c.mask = cost, 1, mask
+	case cost == c.best:
+		c.seen++
+		if c.rnd.IntN(c.seen) == 0 {
+			c.mask = mask
 		}
 	}
+}
 
-	// Choose sizeA-1 of the remaining n-1 players to join player 0.
-	rest := n - 1
-	want := sizeA - 1
-	if want < 0 {
-		return nil
+// searchExhaustive walks every possible split and picks one of the best.
+//
+// With an even number of players, every split turns up twice, once as each
+// side, so player 0 is pinned to the side being chosen and half the work is
+// skipped. With an odd number the two sides are different sizes and there is
+// no mirror image to skip: the smaller side is chosen from everybody.
+//
+// The most work is at 23 and 24 players, 1,352,078 splits either way.
+func searchExhaustive(sq squad, rnd *rand.Rand) (uint64, int) {
+	pick := newChooser(rnd)
+	size := sq.n / 2
+
+	if sq.n%2 == 0 {
+		// Choose size-1 of the other n-1 players to join player 0.
+		limit := uint64(1) << uint(sq.n-1)
+		for sub := (uint64(1) << uint(size-1)) - 1; sub < limit; sub = nextCombination(sub) {
+			mask := sub<<1 | 1
+			pick.offer(mask, sq.cost(mask))
+		}
+	} else {
+		limit := uint64(1) << uint(sq.n)
+		for mask := (uint64(1) << uint(size)) - 1; mask < limit; mask = nextCombination(mask) {
+			pick.offer(mask, sq.cost(mask))
+		}
 	}
-	limit := uint64(1) << uint(rest)
-	for sub := (uint64(1) << uint(want)) - 1; sub < limit; sub = nextCombination(sub) {
-		mask := (sub << 1) | 1 // shift up to leave room for the pinned player 0
-		add(mask, evaluate(players, mask))
-	}
-	return cands
+	return pick.mask, pick.best
 }
 
 // nextCombination returns the next integer with the same number of set bits
 // (Gosper's hack), so we only visit masks of the right size.
 func nextCombination(v uint64) uint64 {
 	if v == 0 {
-		return 0
+		return math.MaxUint64 // nothing to permute, so stop the caller's loop
 	}
 	lowest := v & -v
 	ripple := v + lowest
@@ -217,106 +231,39 @@ func nextCombination(v uint64) uint64 {
 }
 
 // searchHeuristic is the fallback for squads too big to enumerate: start from
-// random even splits and keep swapping pairs while that helps.
-func searchHeuristic(players []Player, rnd *rand.Rand) []candidate {
-	n := len(players)
-	sizeA := n / 2
+// random splits and keep swapping pairs while that helps, then pick one of the
+// best finishes. It is not guaranteed to find the most even split there is,
+// and it does not choose evenly between the ones it does find.
+func searchHeuristic(sq squad, rnd *rand.Rand) (uint64, int) {
 	const restarts = 200
-
-	best := math.MaxInt
-	var cands []candidate
+	pick := newChooser(rnd)
+	size := sq.n / 2
 
 	for r := 0; r < restarts; r++ {
-		order := rnd.Perm(n)
 		var mask uint64
-		for _, idx := range order[:sizeA] {
+		for _, idx := range rnd.Perm(sq.n)[:size] {
 			mask |= 1 << uint(idx)
 		}
-		cost := evaluate(players, mask)
+		cost := sq.cost(mask)
 
 		improved := true
 		for improved {
 			improved = false
-			for i := 0; i < n; i++ {
-				for j := 0; j < n; j++ {
+			for i := 0; i < sq.n; i++ {
+				for j := 0; j < sq.n; j++ {
 					if mask&(1<<uint(i)) == 0 || mask&(1<<uint(j)) != 0 {
-						continue // need i on side A and j on side B
+						continue // need i in the group and j out of it
 					}
 					trial := mask&^(1<<uint(i)) | (1 << uint(j))
-					if c := evaluate(players, trial); c < cost {
+					if c := sq.cost(trial); c < cost {
 						mask, cost, improved = trial, c, true
 					}
 				}
 			}
 		}
-
-		if cost < best {
-			best = cost
-			kept := cands[:0]
-			for _, c := range cands {
-				if c.cost <= best+costSlack {
-					kept = append(kept, c)
-				}
-			}
-			cands = kept
-		}
-		if cost <= best+costSlack {
-			cands = append(cands, candidate{mask, cost})
-		}
+		pick.offer(mask, cost)
 	}
-	return cands
-}
-
-// evaluate scores one split. Lower is more even. Bits set in mask are side A.
-func evaluate(players []Player, mask uint64) int {
-	var sumA, sumB, countA, countB int
-	var keepersA, keepersB, keepersTotal int
-	posA := map[string]int{}
-	posB := map[string]int{}
-
-	for i, p := range players {
-		onA := mask&(1<<uint(i)) != 0
-		if p.IsKeeper() {
-			keepersTotal++
-		}
-		if onA {
-			sumA += p.Weighting
-			countA++
-			posA[p.Position]++
-			if p.IsKeeper() {
-				keepersA++
-			}
-		} else {
-			sumB += p.Weighting
-			countB++
-			posB[p.Position]++
-			if p.IsKeeper() {
-				keepersB++
-			}
-		}
-	}
-
-	if countA == 0 || countB == 0 {
-		return math.MaxInt / 2
-	}
-
-	// Compare averages rather than totals so an odd number of players, where
-	// one side has an extra body, is still judged fairly.
-	avgA := float64(sumA) / float64(countA)
-	avgB := float64(sumB) / float64(countB)
-	cost := int(math.Round(math.Abs(avgA-avgB) * 100))
-
-	for _, pos := range OutfieldPositions {
-		cost += abs(posA[pos]-posB[pos]) * positionPenalty
-	}
-
-	// Spread the people who only play in goal. With one or none of them there
-	// is nothing to spread, because the rest of us take turns.
-	if keepersTotal >= 2 {
-		cost += abs(keepersA-keepersB) * keeperPenalty
-	}
-
-	return cost
+	return pick.mask, pick.best
 }
 
 func buildSplit(players []Player, mask uint64, cost int) Split {

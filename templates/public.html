@@ -6,7 +6,7 @@
       <h3>{{.Lineup.Session.NameA}}</h3>
       <ul>
         {{range .Lineup.TeamA}}
-          <li><span class="who">{{.Name}}</span>{{if .Position}}<span class="pos">{{.Position}}</span>{{end}}</li>
+          <li><span class="who">{{.Name}}</span>{{if .Keeper}}<span class="pos">{{keeperLabel}}</span>{{end}}</li>
         {{else}}
           <li class="empty">Nobody yet</li>
         {{end}}
@@ -16,7 +16,7 @@
       <h3>{{.Lineup.Session.NameB}}</h3>
       <ul>
         {{range .Lineup.TeamB}}
-          <li><span class="who">{{.Name}}</span>{{if .Position}}<span class="pos">{{.Position}}</span>{{end}}</li>
+          <li><span class="who">{{.Name}}</span>{{if .Keeper}}<span class="pos">{{keeperLabel}}</span>{{end}}</li>
         {{else}}
           <li class="empty">Nobody yet</li>
         {{end}}
