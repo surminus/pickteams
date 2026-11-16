@@ -520,6 +520,8 @@ func TestActionsOnAGameThatIsNotThere(t *testing.T) {
 		"/admin/games/999/weighting",
 		"/admin/games/999/quick-add",
 		"/admin/games/999/move",
+		"/admin/games/999/assign",
+		"/admin/games/999/swap",
 		"/admin/games/999/delete",
 	}
 	for _, path := range paths {

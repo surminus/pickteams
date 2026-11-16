@@ -182,6 +182,8 @@ func (a *App) routes() http.Handler {
 	admin.HandleFunc("POST /admin/games/{id}/quick-add", a.handleQuickAdd)
 	admin.HandleFunc("POST /admin/games/{id}/weighting", a.handleAdjustWeighting)
 	admin.HandleFunc("POST /admin/games/{id}/move", a.handleMovePlayer)
+	admin.HandleFunc("POST /admin/games/{id}/assign", a.handleAssignPlayer)
+	admin.HandleFunc("POST /admin/games/{id}/swap", a.handleSwapPlayers)
 	admin.HandleFunc("POST /admin/games/{id}/publish", a.handlePublish)
 	admin.HandleFunc("POST /admin/games/{id}/names", a.handleTeamNames)
 	admin.HandleFunc("GET /admin/players", a.handleAdminPlayers)

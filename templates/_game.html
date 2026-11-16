@@ -17,14 +17,40 @@
           <h3>{{.Session.NameA}} · {{len .TeamA}} players · total {{.TotalA}}</h3>
           <ul>
             {{range .TeamA}}
-            <li>
+            <li{{if eq $.SwapID .ID}} class="chosen"{{end}}>
               <span class="who">{{.Name}}{{if .Keeper}} <span class="pos">{{keeperLabel}}</span>{{end}}</span>
               <span class="weight">{{.Weighting}}</span>
+              {{if $.SwapID}}
+                {{if eq $.SwapID .ID}}
+                <form class="inline" hx-get="/admin/games/{{$.Session.ID}}" hx-target="#game" hx-select="#game" hx-swap="outerHTML"
+                      method="get" action="/admin/games/{{$.Session.ID}}">
+                  <button class="tiny" type="submit">Cancel</button>
+                </form>
+                {{else if eq $.SwapSide "B"}}
+                <form class="inline" hx-post="/admin/games/{{$.Session.ID}}/swap" hx-target="#game" hx-swap="outerHTML"
+                      method="post" action="/admin/games/{{$.Session.ID}}/swap">
+                  <input type="hidden" name="player_id" value="{{$.SwapID}}">
+                  <input type="hidden" name="with_id" value="{{.ID}}">
+                  <button class="tiny" type="submit" title="Swap with {{$.SwapName}}">Swap &middot; {{index $.SwapResult .ID}}</button>
+                </form>
+                {{end}}
+              {{else}}
+              <form class="inline" hx-get="/admin/games/{{$.Session.ID}}" hx-target="#game" hx-select="#game" hx-swap="outerHTML"
+                    method="get" action="/admin/games/{{$.Session.ID}}">
+                <input type="hidden" name="swap" value="{{.ID}}">
+                <button class="tiny" type="submit" title="Swap with someone on the other side">&#8644;</button>
+              </form>
               <form class="inline" hx-post="/admin/games/{{$.Session.ID}}/move" hx-target="#game" hx-swap="outerHTML"
                     method="post" action="/admin/games/{{$.Session.ID}}/move">
                 <input type="hidden" name="player_id" value="{{.ID}}">
                 <button class="tiny" type="submit" title="Move to the other side">&rarr;</button>
               </form>
+              <form class="inline" hx-post="/admin/games/{{$.Session.ID}}/attending" hx-target="#game" hx-swap="outerHTML"
+                    method="post" action="/admin/games/{{$.Session.ID}}/attending">
+                <input type="hidden" name="player_id" value="{{.ID}}">
+                <button class="tiny" type="submit" title="Not playing after all">&times;</button>
+              </form>
+              {{end}}
             </li>
             {{end}}
           </ul>
@@ -33,19 +59,70 @@
           <h3>{{.Session.NameB}} · {{len .TeamB}} players · total {{.TotalB}}</h3>
           <ul>
             {{range .TeamB}}
-            <li>
+            <li{{if eq $.SwapID .ID}} class="chosen"{{end}}>
+              {{if not $.SwapID}}
               <form class="inline" hx-post="/admin/games/{{$.Session.ID}}/move" hx-target="#game" hx-swap="outerHTML"
                     method="post" action="/admin/games/{{$.Session.ID}}/move">
                 <input type="hidden" name="player_id" value="{{.ID}}">
                 <button class="tiny" type="submit" title="Move to the other side">&larr;</button>
               </form>
+              {{end}}
               <span class="who">{{.Name}}{{if .Keeper}} <span class="pos">{{keeperLabel}}</span>{{end}}</span>
               <span class="weight">{{.Weighting}}</span>
+              {{if $.SwapID}}
+                {{if eq $.SwapID .ID}}
+                <form class="inline" hx-get="/admin/games/{{$.Session.ID}}" hx-target="#game" hx-select="#game" hx-swap="outerHTML"
+                      method="get" action="/admin/games/{{$.Session.ID}}">
+                  <button class="tiny" type="submit">Cancel</button>
+                </form>
+                {{else if eq $.SwapSide "A"}}
+                <form class="inline" hx-post="/admin/games/{{$.Session.ID}}/swap" hx-target="#game" hx-swap="outerHTML"
+                      method="post" action="/admin/games/{{$.Session.ID}}/swap">
+                  <input type="hidden" name="player_id" value="{{$.SwapID}}">
+                  <input type="hidden" name="with_id" value="{{.ID}}">
+                  <button class="tiny" type="submit" title="Swap with {{$.SwapName}}">Swap &middot; {{index $.SwapResult .ID}}</button>
+                </form>
+                {{end}}
+              {{else}}
+              <form class="inline" hx-get="/admin/games/{{$.Session.ID}}" hx-target="#game" hx-select="#game" hx-swap="outerHTML"
+                    method="get" action="/admin/games/{{$.Session.ID}}">
+                <input type="hidden" name="swap" value="{{.ID}}">
+                <button class="tiny" type="submit" title="Swap with someone on the other side">&#8644;</button>
+              </form>
+              <form class="inline" hx-post="/admin/games/{{$.Session.ID}}/attending" hx-target="#game" hx-swap="outerHTML"
+                    method="post" action="/admin/games/{{$.Session.ID}}/attending">
+                <input type="hidden" name="player_id" value="{{.ID}}">
+                <button class="tiny" type="submit" title="Not playing after all">&times;</button>
+              </form>
+              {{end}}
             </li>
             {{end}}
           </ul>
         </div>
       </div>
+
+      {{if .SwapID}}
+      <p class="hint-line">Swapping {{.SwapName}}. Each button shows what the two totals would become, {{.Session.NameA}} first.</p>
+      {{end}}
+
+      {{if .Waiting}}
+      <div class="waiting">
+        <h4>Not on a side yet</h4>
+        {{range .Waiting}}
+        <div class="row">
+          <span class="name"><b>{{.Name}}</b>{{if .Keeper}} <span class="pos">{{keeperLabel}}</span>{{end}}</span>
+          <span class="weight">{{.Weighting}}</span>
+          <form class="inline" hx-post="/admin/games/{{$.Session.ID}}/assign" hx-target="#game" hx-swap="outerHTML"
+                method="post" action="/admin/games/{{$.Session.ID}}/assign">
+            <input type="hidden" name="player_id" value="{{.ID}}">
+            <button class="tiny" type="submit" name="team" value="A">{{$.Session.NameA}} &middot; {{.TotalIfA}}</button>
+            <button class="tiny" type="submit" name="team" value="B">{{$.Session.NameB}} &middot; {{.TotalIfB}}</button>
+          </form>
+        </div>
+        {{end}}
+        <small class="hint">The number is the total that side would have with them on it.</small>
+      </div>
+      {{end}}
 
       <form class="stack" style="margin-top:14px" hx-post="/admin/games/{{.Session.ID}}/publish"
             hx-target="#game" hx-swap="outerHTML" hx-trigger="change"

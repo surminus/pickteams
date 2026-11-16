@@ -96,7 +96,12 @@ func (a *App) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 
 // gameData assembles everything the game page needs in one go. This is the
 // admin view, so weightings are included on purpose.
-func (a *App) gameData(id int64) (map[string]any, error) {
+//
+// swapID is the player somebody has asked to swap, or nought. When it names a
+// player who is on a side, the page shows what the totals would become for a
+// swap with each player on the other side, so the choice can be made knowing
+// what it does.
+func (a *App) gameData(id, swapID int64) (map[string]any, error) {
 	sess, err := a.store.Session(id)
 	if err != nil {
 		return nil, err
@@ -151,7 +156,25 @@ func (a *App) gameData(id int64) (map[string]any, error) {
 		}
 	}
 
-	return map[string]any{
+	totalA, totalB := totalWeighting(teamA), totalWeighting(teamB)
+	hasPicks := len(teamA)+len(teamB) > 0
+
+	// Anyone ticked in since the sides were picked is waiting to be put on
+	// one. Each comes with the total either side would have with them on it.
+	var waiting []waitingPlayer
+	if hasPicks {
+		for _, p := range squad {
+			if _, onASide := picked[p.ID]; attending[p.ID] && !onASide {
+				waiting = append(waiting, waitingPlayer{
+					Player:   p,
+					TotalIfA: totalA + p.Weighting,
+					TotalIfB: totalB + p.Weighting,
+				})
+			}
+		}
+	}
+
+	data := map[string]any{
 		"Title":     "Game " + sess.PlayedOn,
 		"Session":   sess,
 		"Squad":     squad,
@@ -159,10 +182,41 @@ func (a *App) gameData(id int64) (map[string]any, error) {
 		"Count":     attendingCount,
 		"TeamA":     teamA,
 		"TeamB":     teamB,
-		"TotalA":    totalWeighting(teamA),
-		"TotalB":    totalWeighting(teamB),
-		"HasPicks":  len(teamA)+len(teamB) > 0,
-	}, nil
+		"TotalA":    totalA,
+		"TotalB":    totalB,
+		"HasPicks":  hasPicks,
+		"Waiting":   waiting,
+		"SwapID":    int64(0),
+		"SwapSide":  "",
+	}
+
+	if side, ok := picked[swapID]; ok {
+		chosen, others := byID[swapID], teamB
+		if side == "B" {
+			others = teamA
+		}
+		// What the two totals would be after swapping with each of them.
+		results := map[int64]string{}
+		for _, other := range others {
+			shift := other.Weighting - chosen.Weighting
+			if side == "B" {
+				shift = -shift
+			}
+			results[other.ID] = fmt.Sprintf("%d v %d", totalA+shift, totalB-shift)
+		}
+		data["SwapID"] = swapID
+		data["SwapSide"] = side
+		data["SwapName"] = chosen.Name
+		data["SwapResult"] = results
+	}
+	return data, nil
+}
+
+// waitingPlayer is somebody who is playing but is not on a side yet.
+type waitingPlayer struct {
+	Player
+	TotalIfA int
+	TotalIfB int
 }
 
 // totalWeighting is the number the balancer evens up. It is a total and not
@@ -180,7 +234,10 @@ func (a *App) handleAdminSession(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	data, err := a.gameData(id)
+	// A swap that has been started but not finished lives in the address, so
+	// nothing is stored until the second player is chosen.
+	swapID, _ := strconv.ParseInt(r.URL.Query().Get("swap"), 10, 64)
+	data, err := a.gameData(id, swapID)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -211,7 +268,7 @@ func (a *App) refreshGame(w http.ResponseWriter, r *http.Request, id int64, extr
 		http.Redirect(w, r, fmt.Sprintf("/admin/games/%d", id), http.StatusSeeOther)
 		return
 	}
-	data, err := a.gameData(id)
+	data, err := a.gameData(id, 0)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -305,7 +362,7 @@ func (a *App) handleAdjustWeighting(w http.ResponseWriter, r *http.Request) {
 
 	extra := map[string]any{}
 	if picked, err := a.store.PickedIDs(id); err == nil && len(picked) > 0 {
-		extra["Notice"] = "Weighting changed. Pick the sides again to take it into account."
+		extra["Notice"] = "Weighting changed. The totals are up to date, so swap players or pick again if the sides are no longer even."
 	}
 	a.refreshGame(w, r, id, extra)
 }
@@ -348,6 +405,71 @@ func (a *App) handleMovePlayer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.refreshGame(w, r, id, map[string]any{"Notice": "Moved."})
+}
+
+// handleAssignPlayer puts somebody who is playing, but was not there when the
+// sides were picked, onto one of them without disturbing anyone else.
+func (a *App) handleAssignPlayer(w http.ResponseWriter, r *http.Request) {
+	id, ok := a.gameID(w, r)
+	if !ok {
+		return
+	}
+	playerID, err := strconv.ParseInt(r.PostFormValue("player_id"), 10, 64)
+	if err != nil {
+		http.Error(w, "bad player", http.StatusBadRequest)
+		return
+	}
+	team := r.PostFormValue("team")
+	if team != "A" && team != "B" {
+		http.Error(w, "bad side", http.StatusBadRequest)
+		return
+	}
+	added, err := a.store.AssignPlayer(id, playerID, team)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	if !added {
+		a.refreshGame(w, r, id, map[string]any{"Error": "They are not ticked in as playing, so they cannot go on a side."})
+		return
+	}
+	a.refreshGame(w, r, id, map[string]any{"Notice": a.totalsNotice(id, "Added.")})
+}
+
+// handleSwapPlayers trades one player from each side, leaving everybody else
+// where they are.
+func (a *App) handleSwapPlayers(w http.ResponseWriter, r *http.Request) {
+	id, ok := a.gameID(w, r)
+	if !ok {
+		return
+	}
+	playerID, err1 := strconv.ParseInt(r.PostFormValue("player_id"), 10, 64)
+	withID, err2 := strconv.ParseInt(r.PostFormValue("with_id"), 10, 64)
+	if err1 != nil || err2 != nil {
+		http.Error(w, "bad player", http.StatusBadRequest)
+		return
+	}
+	swapped, err := a.store.SwapPlayers(id, playerID, withID)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	if !swapped {
+		a.refreshGame(w, r, id, map[string]any{"Error": "Those two are not on opposite sides any more, so nothing was swapped."})
+		return
+	}
+	a.refreshGame(w, r, id, map[string]any{"Notice": a.totalsNotice(id, "Swapped.")})
+}
+
+// totalsNotice adds where the totals now stand to the end of a notice, so the
+// effect of a change is spelled out rather than left to be spotted.
+func (a *App) totalsNotice(id int64, done string) string {
+	data, err := a.gameData(id, 0)
+	if err != nil {
+		return done
+	}
+	sess := data["Session"].(Session)
+	return fmt.Sprintf("%s %s now total %d, %s %d.", done, sess.NameA(), data["TotalA"], sess.NameB(), data["TotalB"])
 }
 
 func (a *App) handlePublish(w http.ResponseWriter, r *http.Request) {

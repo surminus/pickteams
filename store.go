@@ -379,8 +379,21 @@ func (s *Store) SetAttending(sessionID, playerID int64, attending bool) error {
 			 ON CONFLICT DO NOTHING`, sessionID, playerID)
 		return err
 	}
-	_, err := s.db.Exec(`DELETE FROM attendance WHERE session_id = ? AND player_id = ?`, sessionID, playerID)
-	return err
+	// Somebody who is no longer playing comes off their side as well, and
+	// everybody else stays where they were.
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM attendance WHERE session_id = ? AND player_id = ?`, sessionID, playerID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM picks WHERE session_id = ? AND player_id = ?`, sessionID, playerID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) AttendingIDs(sessionID int64) (map[int64]bool, error) {
@@ -464,6 +477,40 @@ func (s *Store) MovePlayer(sessionID, playerID int64) error {
 		UPDATE picks SET team = CASE team WHEN 'A' THEN 'B' ELSE 'A' END
 		WHERE session_id = ? AND player_id = ?`, sessionID, playerID)
 	return err
+}
+
+// AssignPlayer puts one player on a side, leaving everyone else alone. It is
+// for somebody ticked in after the sides were picked. It reports false, and
+// does nothing, if they are not marked as playing.
+func (s *Store) AssignPlayer(sessionID, playerID int64, team string) (bool, error) {
+	res, err := s.db.Exec(`
+		INSERT INTO picks (session_id, player_id, team)
+		SELECT session_id, player_id, ? FROM attendance
+		WHERE session_id = ? AND player_id = ?
+		ON CONFLICT (session_id, player_id) DO UPDATE SET team = excluded.team`,
+		team, sessionID, playerID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
+// SwapPlayers trades two players who are on opposite sides. It reports false,
+// and does nothing, if they are not: the page it was asked from may be out of
+// date, and flipping two players on the same side would not be a swap.
+func (s *Store) SwapPlayers(sessionID, playerID, withID int64) (bool, error) {
+	res, err := s.db.Exec(`
+		UPDATE picks SET team = CASE team WHEN 'A' THEN 'B' ELSE 'A' END
+		WHERE session_id = ?1 AND player_id IN (?2, ?3)
+		AND (SELECT COUNT(DISTINCT team) FROM picks
+		     WHERE session_id = ?1 AND player_id IN (?2, ?3)) = 2`,
+		sessionID, playerID, withID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 2, err
 }
 
 // Lineup is the public view of a session: names, plus GK against anyone who
